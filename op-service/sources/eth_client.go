@@ -303,6 +303,26 @@ func (s *EthClient) InfoByNumber(ctx context.Context, number uint64) (eth.BlockI
 }
 
 func (s *EthClient) InfoByLabel(ctx context.Context, label eth.BlockLabel) (eth.BlockInfo, error) {
+	if label == eth.Safe {
+		byLabel, err := s.InfoByLabel(ctx, eth.Unsafe)
+		if err != nil {
+			return nil, err
+		}
+		if byLabel.NumberU64() <= 10 {
+			return nil, ethereum.NotFound
+		}
+		return s.InfoByNumber(ctx, byLabel.NumberU64()-10)
+	}
+	if label == eth.Finalized {
+		byLabel, err := s.InfoByLabel(ctx, eth.Unsafe)
+		if err != nil {
+			return nil, err
+		}
+		if byLabel.NumberU64() <= 15 {
+			return nil, ethereum.NotFound
+		}
+		return s.InfoByNumber(ctx, byLabel.NumberU64()-15)
+	}
 	// can't hit the cache when querying the head due to reorgs / changes.
 	return s.headerCall(ctx, "eth_getBlockByNumber", label)
 }
@@ -338,6 +358,26 @@ func (s *EthClient) PayloadByNumber(ctx context.Context, number uint64) (*eth.Ex
 }
 
 func (s *EthClient) PayloadByLabel(ctx context.Context, label eth.BlockLabel) (*eth.ExecutionPayload, error) {
+	if label == eth.Safe {
+		byLabel, err := s.PayloadByLabel(ctx, eth.Unsafe)
+		if err != nil {
+			return nil, err
+		}
+		if byLabel.BlockNumber <= 10 {
+			return nil, ethereum.NotFound
+		}
+		return s.PayloadByNumber(ctx, uint64(byLabel.BlockNumber-10))
+	}
+	if label == eth.Finalized {
+		byLabel, err := s.PayloadByLabel(ctx, eth.Unsafe)
+		if err != nil {
+			return nil, err
+		}
+		if byLabel.BlockNumber <= 15 {
+			return nil, ethereum.NotFound
+		}
+		return s.PayloadByNumber(ctx, uint64(byLabel.BlockNumber-15))
+	}
 	return s.payloadCall(ctx, "eth_getBlockByNumber", label)
 }
 
