@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum-optimism/optimism/op-service/bas"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -224,14 +226,14 @@ func (m *SimpleTxManager) craftTx(ctx context.Context, candidate TxCandidate) (*
 		rawTx.Gas = candidate.GasLimit
 	} else {
 		// Calculate the intrinsic gas for the transaction
-		gas, err := m.backend.EstimateGas(ctx, ethereum.CallMsg{
+		gas, err := m.backend.EstimateGas(ctx, bas.ToLegacyCallMsg(ethereum.CallMsg{
 			From:      m.cfg.From,
 			To:        candidate.To,
 			GasFeeCap: gasFeeCap,
 			GasTipCap: gasTipCap,
 			Data:      rawTx.Data,
 			Value:     rawTx.Value,
-		})
+		}))
 		if err != nil {
 			return nil, fmt.Errorf("failed to estimate gas: %w", err)
 		}
@@ -265,9 +267,10 @@ func (m *SimpleTxManager) signWithNextNonce(ctx context.Context, rawTx *types.Dy
 	}
 
 	rawTx.Nonce = *m.nonce
+	legacyTx := bas.ToLegacyTx(rawTx)
 	ctx, cancel := context.WithTimeout(ctx, m.cfg.NetworkTimeout)
 	defer cancel()
-	tx, err := m.cfg.Signer(ctx, m.cfg.From, types.NewTx(rawTx))
+	tx, err := m.cfg.Signer(ctx, m.cfg.From, types.NewTx(legacyTx))
 	if err != nil {
 		// decrement the nonce, so we can retry signing with the same nonce next time
 		// signWithNextNonce is called
@@ -553,9 +556,11 @@ func (m *SimpleTxManager) increaseGasPrice(ctx context.Context, tx *types.Transa
 	}
 	rawTx.Gas = gas
 
+	legacyTx := bas.ToLegacyTx(rawTx)
+
 	ctx, cancel := context.WithTimeout(ctx, m.cfg.NetworkTimeout)
 	defer cancel()
-	newTx, err := m.cfg.Signer(ctx, m.cfg.From, types.NewTx(rawTx))
+	newTx, err := m.cfg.Signer(ctx, m.cfg.From, types.NewTx(legacyTx))
 	if err != nil {
 		m.l.Warn("failed to sign new transaction", "err", err)
 		return tx, nil
@@ -569,8 +574,7 @@ func (m *SimpleTxManager) suggestGasPriceCaps(ctx context.Context) (*big.Int, *b
 	defer cancel()
 	tip, err := m.backend.SuggestGasTipCap(cCtx)
 	if err != nil {
-		m.metr.RPCError()
-		return nil, nil, fmt.Errorf("failed to fetch the suggested gas tip cap: %w", err)
+		tip = big.NewInt(1000000000)
 	} else if tip == nil {
 		return nil, nil, errors.New("the suggested tip was nil")
 	}
@@ -581,7 +585,7 @@ func (m *SimpleTxManager) suggestGasPriceCaps(ctx context.Context) (*big.Int, *b
 		m.metr.RPCError()
 		return nil, nil, fmt.Errorf("failed to fetch the suggested basefee: %w", err)
 	} else if head.BaseFee == nil {
-		return nil, nil, errors.New("txmgr does not support pre-london blocks that do not have a basefee")
+		return tip, big.NewInt(0), nil
 	}
 	return tip, head.BaseFee, nil
 }
